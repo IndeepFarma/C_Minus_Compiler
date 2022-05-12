@@ -1,0 +1,19 @@
+package absyn;
+
+public class IndexVar extends Var {
+    public Exp index;
+    public String name;
+    public int row; 
+    public int col; 
+
+    public IndexVar(int row, int col, String name, Exp index) {
+        this.row = row;
+        this.col = col;
+        this.name = name;
+        this.index = index;
+    }
+
+    public void accept(AbsynVisitor visitor, int level) {
+        visitor.visit(this, level);
+    }
+}

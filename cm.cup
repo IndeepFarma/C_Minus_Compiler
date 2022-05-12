@@ -1,0 +1,352 @@
+/*
+  Created by: Indeep Farma, Kristan Samaroo
+  File Name: cm.cup
+  To Build: java java_cup.Main < cm.cup
+*/
+   
+   
+/* ----------------------Preliminary Declarations Section--------------------*/
+   
+/* Import the class java_cup.runtime.*  */
+// import java_cup.runtime.*;
+import absyn.*;
+
+/* Parser code to change the way the parser reports errors (include
+   line and column number of the error). */
+parser code {:
+
+  public String filename; 
+  public boolean SHOW_SYM;
+  public boolean GEN_ASSBLY;
+  public boolean hasErrors;
+  
+  /* Change the method report_error so it will display the line and
+    column of where the error occurred in the input as well as the
+    reason for the error which is passed into the method in the
+    String 'message'. */
+  public void report_error(String message, Object info) {
+
+    /* Create a StringBuffer called 'm' with the string 'Error' in it. */
+    StringBuffer m = new StringBuffer("Error");
+
+    /* If this parser calls report_errors then there are errors */
+    hasErrors = true; 
+
+    /* Check if the information passed to the method is the same
+        type as the type java_cup.runtime.Symbol. */
+    if (info instanceof java_cup.runtime.Symbol) {
+      /* Declare a java_cup.runtime.Symbol object 's' with the
+        information in the object info that is being typecasted
+        as a java_cup.runtime.Symbol object. */
+      java_cup.runtime.Symbol s = ((java_cup.runtime.Symbol) info);
+
+      /* Check if the line number in the input is greater or
+        equal to zero. */
+      if (s.left >= 0) {                
+        /* Add to the end of the StringBuffer error message
+          the line number of the error in the input. */
+        m.append(" in line "+(s.left+1));   
+        /* Check if the column number in the input is greater
+          or equal to zero. */
+        if (s.right >= 0)                    
+          /* Add to the end of the StringBuffer error message
+              the column number of the error in the input. */
+          m.append(", column "+(s.right+1));
+      }
+    }
+
+    /* Add to the end of the StringBuffer error message created in
+        this method the message that was passed into this method. */
+    m.append(" : "+message);
+
+    /* Print the contents of the StringBuffer 'm', which contains
+        an error message, out on a line. */
+    System.err.println(m);
+  }
+
+  /* Change the method report_fatal_error so when it reports a fatal
+    error it will display the line and column number of where the
+    fatal error occurred in the input as well as the reason for the
+    fatal error which is passed into the method in the object
+    'message' and then exit.*/
+  public void report_fatal_error(String message, Object info) {
+    report_error(message, info);
+    System.exit(1);
+  }
+
+:};
+
+/* ---------------------------- TERMINALS ---------------------------- */
+terminal IF, ELSE, INT, RETURN, VOID, WHILE;
+terminal EQ, LT, GT, LTE, GTE, EQEQ, NOTEQ;
+terminal SEMI, COMMA;
+terminal LPAREN, RPAREN, LSQBRAC, RSQBRAC, LBRAC, RBRAC;
+terminal PLUS, MINUS, TIMES, DIVIDE;
+terminal Integer NUM;
+terminal String ID;
+terminal ERROR;
+
+/** ---------------------------- NON-TERMINALS ---------------------------- */
+non terminal Var var;
+non terminal VarDec param, var_declaration;
+non terminal VarDecList params, param_list, local_declarations;
+
+non terminal Exp factor, call, simple_expression, additive_expression, term, expression, statement, selection_stmt, iteration_stmt, return_stmt,  expression_stmt;
+non terminal ExpList statement_list, arg_list, args;
+
+non terminal Dec fun_declaration, declaration;
+non terminal DecList program, declaration_list;
+
+non terminal Type type_specifier;
+non terminal Integer relop, addop, mulop;
+non terminal CompoundExp compound_stmt;
+
+/* ----------------------------Grammar Section-------------------- */
+
+program  ::= declaration_list:d
+               {: RESULT = d; 
+                  
+                  // semantic analyzer will always be run, SHOW_SYM boolean will be a parameter to control if output to console or not
+                  SemanticAnalyzer analyzer = new SemanticAnalyzer(SHOW_SYM, RESULT); 
+                  if (SHOW_SYM) {
+                     System.out.println("\nShowing Symbol Table:\n");
+                     System.out.println(analyzer.symbolTableToString());
+                  }
+                  
+                  if (GEN_ASSBLY && !analyzer.hasErrors && !parser.hasErrors) {
+                     System.out.println("\nGenerating Assembly Code:\n");
+                     AssemblyGenerator generator = new AssemblyGenerator(filename, RESULT);
+                  }
+
+                  if (!analyzer.hasErrors) System.out.println("Semantic Analysis Complete: No Errors Found");
+                  else System.out.println("Semantic Analysis Complete: Errors Found");
+               :}
+            | ERROR
+               {: RESULT = null; :}
+            ;
+
+declaration_list  ::= declaration_list:dl declaration:d
+                        {:
+                           DecList t = dl;
+                           while( t.tail != null )
+                              t = t.tail;
+                           t.tail = new DecList(d, null);
+                           RESULT = dl;
+                        :}
+                     | declaration:d
+                        {: RESULT = new DecList(d, null); :}
+                     | error declaration:d2
+                        {: 
+                           parser.report_error("invalid", null); 
+                           RESULT = new DecList(d2, null); 
+                        :}
+                     |
+                        {: RESULT = new DecList(null,null); :}
+                     ;
+
+declaration ::= var_declaration:v
+                  {: RESULT = v; :}
+               | fun_declaration:f
+                  {: RESULT = f; :}
+               ;
+
+var_declaration   ::= type_specifier:t ID:i SEMI
+                        {: RESULT = new SimpleDec(tleft, tright, t, i); :}
+					      | type_specifier:t ID:i LSQBRAC NUM:n RSQBRAC SEMI
+                        {: RESULT = new ArrayDec(tleft,tright, t, i, new IntExp(ileft, iright, n)); :}
+                     | type_specifier:t ID:i error:e
+                        {: 
+                           parser.report_error("Invalid variable declaration: missing semi colon {row:" + (eleft + 1) + ",col:" + eright + "}", e);
+                           RESULT = new ArrayDec(tleft,tright, t, i, new IntExp(ileft, iright, 0)); 
+                        :}
+                     | type_specifier:t ID:i LSQBRAC error:e RSQBRAC SEMI
+                        {: 
+                           parser.report_error("Invalid variable declaration: invalid array size {row:" + (eleft + 1) + ",col:" + eright + "}", e);
+                           RESULT = new ArrayDec(tleft,tright, t, i, new IntExp(ileft, iright, 0)); 
+                        :}
+                     ;
+
+type_specifier ::= INT:i
+                     {: RESULT = new Type(ileft, iright, Type.INT); :}
+                  | VOID:v
+                     {: RESULT = new Type(vleft, vright, Type.VOID); :}
+                  ;
+
+fun_declaration   ::= type_specifier:t ID:i LPAREN params:p RPAREN compound_stmt:c
+                        {: RESULT = new FunctionDec(tleft,tright, t, i, p, c); :}
+                     | type_specifier:t ID:i LPAREN params:p RPAREN error:e
+                        {: 
+                           parser.report_error("Invalid function declaration: Error inside function body {row:" + (eleft + 1) + ",col:" + eright + "}", e);
+                           RESULT = new FunctionDec(eleft, eright, new Type(eleft, eright, Type.VOID), "", new VarDecList(null, null), new CompoundExp(eleft, eright, null, null));
+                        :}
+                     | type_specifier:t ID:i LPAREN error:e RPAREN compound_stmt:c
+                        {: 
+                           parser.report_error("Invalid function declaration: Parameter error {row:" + (eleft + 1) + ",col:" + eright + "}", e);
+                           RESULT = new FunctionDec(eleft, eright, new Type(eleft, eright, Type.VOID), "", new VarDecList(null, null), new CompoundExp(eleft, eright, null, null));
+                        :}
+                     ;
+
+params   ::= param_list:p
+               {: RESULT = p; :}
+            | VOID:v
+            ;
+
+param_list  ::= param_list:pl COMMA param:p
+                  {: VarDecList t = pl;
+                        while( t.tail != null )
+                           t = t.tail;
+                        t.tail = new VarDecList(p, null);
+                        RESULT = pl;
+                  :}
+               | param:p
+                  {: RESULT = new VarDecList(p, null); :}
+               ;
+
+param ::= type_specifier:t ID:i
+            {: RESULT = new SimpleDec(tleft, tright, t, i); :}
+         | type_specifier:t ID:i LSQBRAC RSQBRAC
+            {: RESULT = new ArrayDec(tleft, tright, t, i, null); :}
+         ;
+
+compound_stmt  ::= LBRAC local_declarations:d statement_list:s RBRAC
+                     {: RESULT = new CompoundExp(sleft, sright, d, s); :}
+                  ;
+
+local_declarations   ::= var_declaration:vd local_declarations:ld
+                           {: RESULT = new VarDecList(vd, ld); :}
+                        |
+                        ;
+
+statement_list ::= statement:s statement_list:sl
+                     {: RESULT = new ExpList(s, sl); :}
+                  |
+                  ;
+
+statement   ::= expression_stmt:e
+                  {: RESULT = e; :}
+               | compound_stmt:c
+                  {: RESULT = c; :}
+               | selection_stmt:s
+                  {: RESULT = s; :}
+               | iteration_stmt:i
+                  {: RESULT = i; :}
+               | return_stmt:r
+                  {: RESULT = r; :}
+               | error:e SEMI
+                 {: 
+                     parser.report_error("Invalid statement", e);
+                     RESULT = new ReturnExp(eleft, eright, new NilExp(eleft, eright));
+                  :}
+               ;
+
+expression_stmt   ::= expression:e SEMI
+                        {: RESULT = e; :}
+                      | SEMI
+                      ;
+
+selection_stmt ::= IF LPAREN expression:e RPAREN statement:s
+                     {: RESULT = new IfExp(eleft, eright, e, s, null); :}
+                  | IF LPAREN expression:e RPAREN statement:s1 ELSE statement:s2
+                     {: RESULT = new IfExp(eleft, eright, e, s1, s2); :}
+                  ;
+
+iteration_stmt ::= WHILE LPAREN expression:e RPAREN statement:s
+                     {: RESULT = new WhileExp(eleft, eright, e, s); :}
+                  ;
+
+return_stmt ::= RETURN:r SEMI
+                  {: RESULT = new ReturnExp(rleft, rright, null); :}
+               | RETURN:r expression:e SEMI
+                  {: RESULT = new ReturnExp(rleft, rright, e); :}
+               | RETURN:r error:e
+                  {: 
+                     parser.report_error("Invalid return statement", e);
+                     RESULT = new ReturnExp(eleft, eright, new NilExp(eleft, eright));
+                  :}
+               ;
+
+expression  ::= var:v EQ expression:e
+                  {: RESULT = new AssignExp(vleft, vright, new VarExp(vleft, vright, v), e); :}
+               | simple_expression:s
+                  {: RESULT = s; :}
+               ;
+
+var   ::= ID:i
+            {: RESULT = new SimpleVar(ileft, iright, i); :}
+         | ID:i LSQBRAC expression:e RSQBRAC
+            {: RESULT = new IndexVar(ileft, iright, i, e); :}
+         ;
+
+simple_expression ::= additive_expression:e1 relop:r additive_expression:e2
+                        {: RESULT = new OpExp(e1left, e1right, e1, r, e2); :}
+                     | additive_expression:e
+                        {: RESULT = e; :}
+                     ;
+
+relop ::= LTE:i
+            {: RESULT = OpExp.LTE; :}
+         | LT:i
+            {: RESULT = OpExp.LT; :}
+         | GT:i
+            {: RESULT = OpExp.GT; :}
+         | GTE:i
+            {: RESULT = OpExp.GTE; :}
+         | EQEQ:i
+            {: RESULT = OpExp.EQEQ; :}
+         | NOTEQ:i
+            {: RESULT = OpExp.NOTEQ; :}
+         ;
+
+additive_expression  ::= additive_expression:e addop:o term:t
+                           {: RESULT = new OpExp(eleft, eright, e, o, t); :}
+                        | term:t
+                           {: RESULT =  t; :}
+                        ;
+
+addop ::= PLUS:i
+            {: RESULT = OpExp.PLUS; :}
+         | MINUS:i
+            {: RESULT = OpExp.MINUS; :}
+         ;
+
+term  ::= term:t mulop:o factor:f
+            {: RESULT = new OpExp(tleft, tright, t, o, f); :}
+         | factor:f
+            {: RESULT = f; :})
+         ;
+
+mulop ::= TIMES:i
+            {: RESULT = OpExp.TIMES; :}
+         | DIVIDE:i
+            {: RESULT = OpExp.DIVIDE; :}
+         ;
+
+factor   ::= LPAREN expression:e RPAREN
+               {: RESULT = e; :}
+            | var:v1
+               {: RESULT = new VarExp(v1left, v1right, v1); :}
+            | call:c
+               {: RESULT = c; :}
+            | NUM:n
+               {: RESULT = new IntExp(nleft, nright, n); :}
+            ;
+
+call  ::= ID:i LPAREN args:a RPAREN
+            {: RESULT = new CallExp(ileft, iright, i, a); :}
+         ;
+
+args  ::= arg_list:a
+            {: RESULT = a; :}
+         |
+         ;
+
+arg_list ::= arg_list:e1 COMMA expression:e2
+               {: ExpList t = e1;
+                     while( t.tail != null )
+                        t = t.tail;
+                     t.tail = new ExpList(e2, null);
+                     RESULT = e1;
+               :}
+            | expression:e
+               {: RESULT = new ExpList(e, null); :}
+            ;
