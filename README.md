@@ -3,8 +3,6 @@ Developers: Kristan Samaroo, Indeep Farma
 
 Semester: W22 
 
-Current Checkpoint: TWO
-
 ## Acknowledgements: 
 This code is based off the example provided by Kristan Samaroo and Indeep Farma for the assignment. The 
 CFGs created in the ``` cm.cup ``` file are based off of the "Syntatic Rules in BNF"
